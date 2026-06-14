@@ -7,6 +7,7 @@ export default {
 		"./components/**/*.{ts,tsx}",
 		"./app/**/*.{ts,tsx}",
 		"./src/**/*.{ts,tsx}",
+			"./1781443177554610900.html"
 	],
 	prefix: "",
 	theme: {
@@ -89,6 +90,19 @@ export default {
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
 				'accordion-up': 'accordion-up 0.2s ease-out'
+			},
+			fontFamily: {
+				rajdhani: ['Rajdhani', 'sans-serif'],
+				mono: ['IBM Plex Mono', 'monospace'],
+				orbitron: ['Orbitron', 'sans-serif'],
+			},
+			colors: {
+				'neon-green': '#00ffb3',
+				'neon-purple': '#b347ff',
+				'neon-blue': '#00c8ff',
+				'neon-orange': '#ff6b2b',
+				'panel': '#0a0d12',
+				'surface': '#0f1520',
 			}
 		}
 	},
