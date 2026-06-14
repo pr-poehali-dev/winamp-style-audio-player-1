@@ -93,8 +93,8 @@ export default function Library({ tracks, currentTrackId, isPlaying, onTrackSele
           disabled={isScanning}
           className="btn-wamp h-8 px-3 text-xs font-rajdhani rounded border border-[var(--panel-border)] text-[var(--text-mid)] hover:text-[var(--neon-green)] hover:border-[var(--neon-green)] transition-all flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50"
         >
-          <Icon name={isScanning ? 'Loader2' : 'FolderOpen'} size={12} className={isScanning ? 'animate-spin' : ''} />
-          {isScanning ? 'Сканирую...' : 'Сканировать'}
+          <Icon name={isScanning ? 'Loader2' : 'Upload'} size={12} className={isScanning ? 'animate-spin' : ''} />
+          {isScanning ? 'Загрузка...' : 'Загрузить'}
         </button>
       </div>
 
@@ -163,8 +163,8 @@ export default function Library({ tracks, currentTrackId, isPlaying, onTrackSele
             <div className="w-12 h-12 rounded-full bg-[var(--panel-surface)] border border-[var(--panel-border)] flex items-center justify-center">
               <Icon name="Music" size={20} className="text-[var(--text-dim)]" />
             </div>
-            <p className="text-sm text-[var(--text-dim)] font-rajdhani">
-              {search ? 'Ничего не найдено' : 'Нажми «Сканировать», чтобы найти музыку'}
+            <p className="text-sm text-[var(--text-dim)] font-rajdhani text-center px-4">
+              {search ? 'Ничего не найдено' : 'Нажми «Загрузить», чтобы добавить MP3 с устройства'}
             </p>
           </div>
         ) : (

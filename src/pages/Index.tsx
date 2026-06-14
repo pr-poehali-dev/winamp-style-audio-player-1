@@ -61,7 +61,11 @@ export default function Index() {
   const gainNodeRef = useRef<GainNode | null>(null);
   const eqNodesRef = useRef<BiquadFilterNode[]>([]);
 
-  const [tracks] = useState<Track[]>(DEMO_TRACKS);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const objectUrlsRef = useRef<string[]>([]);
+  const tracksRef = useRef<Track[]>(DEMO_TRACKS);
+
+  const [tracks, setTracks] = useState<Track[]>(DEMO_TRACKS);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(80);
@@ -161,28 +165,35 @@ export default function Index() {
     setCurrentTime(0);
     if (audioRef.current && track.url) {
       audioRef.current.src = track.url;
+      audioRef.current.load();
       audioRef.current.play().catch(() => {});
     } else {
+      // Demo mode
       setIsPlaying(true);
       setDuration(track.duration);
     }
   }, [initAudio]);
 
+  const currentTrackRef = useRef<Track | null>(null);
+  useEffect(() => { currentTrackRef.current = currentTrack; }, [currentTrack]);
+
   const handleNext = useCallback(() => {
-    if (!tracks.length) return;
+    const list = tracksRef.current;
+    if (!list.length) return;
     if (isShuffle) {
-      playTrack(tracks[Math.floor(Math.random() * tracks.length)]);
+      playTrack(list[Math.floor(Math.random() * list.length)]);
     } else {
-      const idx = tracks.findIndex(t => t.id === currentTrack?.id);
-      playTrack(tracks[(idx + 1) % tracks.length]);
+      const idx = list.findIndex(t => t.id === currentTrackRef.current?.id);
+      playTrack(list[(idx + 1) % list.length]);
     }
-  }, [tracks, currentTrack, isShuffle, playTrack]);
+  }, [isShuffle, playTrack]);
 
   const handlePrev = useCallback(() => {
-    if (!tracks.length) return;
-    const idx = tracks.findIndex(t => t.id === currentTrack?.id);
-    playTrack(tracks[(idx - 1 + tracks.length) % tracks.length]);
-  }, [tracks, currentTrack, playTrack]);
+    const list = tracksRef.current;
+    if (!list.length) return;
+    const idx = list.findIndex(t => t.id === currentTrackRef.current?.id);
+    playTrack(list[(idx - 1 + list.length) % list.length]);
+  }, [playTrack]);
 
   const handlePlayPause = useCallback(() => {
     initAudio();
@@ -219,9 +230,48 @@ export default function Index() {
     return () => clearInterval(interval);
   }, [isPlaying, currentTrack, handleNext]);
 
+  // Cleanup object URLs on unmount
+  useEffect(() => {
+    return () => {
+      objectUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, []);
+
+  const handleFilesSelected = useCallback((files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const newTracks: Track[] = [];
+    Array.from(files).forEach(file => {
+      if (!file.type.startsWith('audio/')) return;
+      const url = URL.createObjectURL(file);
+      objectUrlsRef.current.push(url);
+      // Parse title/artist from filename: "Artist - Title.mp3" or just "Title.mp3"
+      const name = file.name.replace(/\.[^.]+$/, '');
+      const parts = name.split(' - ');
+      const artist = parts.length >= 2 ? parts[0].trim() : 'Неизвестный';
+      const title = parts.length >= 2 ? parts.slice(1).join(' - ').trim() : name;
+      newTracks.push({
+        id: `file_${Date.now()}_${Math.random()}`,
+        title,
+        artist,
+        album: 'Загруженные',
+        duration: 0,
+        genre: 'Без жанра',
+        url,
+      });
+    });
+    if (newTracks.length > 0) {
+      setTracks(prev => {
+        const next = [...prev, ...newTracks];
+        tracksRef.current = next;
+        return next;
+      });
+      // Auto-play first loaded track
+      playTrack(newTracks[0]);
+    }
+  }, [playTrack]);
+
   const handleScan = () => {
-    setIsScanning(true);
-    setTimeout(() => setIsScanning(false), 2000);
+    fileInputRef.current?.click();
   };
 
   const handleAddToPlaylist = (track: Track) => {
@@ -256,6 +306,14 @@ export default function Index() {
   return (
     <div className="h-[100dvh] flex flex-col bg-[var(--panel-bg)] overflow-hidden select-none">
       <audio ref={audioRef} style={{ display: 'none' }} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/*"
+        multiple
+        style={{ display: 'none' }}
+        onChange={e => handleFilesSelected(e.target.files)}
+      />
 
       {/* Fullscreen visualizer */}
       {isFullscreen && (
@@ -296,16 +354,22 @@ export default function Index() {
           <span className="text-sm font-orbitron font-bold tracking-[0.2em] text-white">WAMP</span>
           <span className="text-[9px] font-mono text-[var(--text-dim)] tracking-widest hidden">v3.0</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <span className="text-[10px] font-mono text-[var(--text-dim)]">
             {tracks.length} треков
           </span>
-          <div
-            className="text-[10px] font-mono px-2 py-0.5 rounded"
-            style={{ background: 'rgba(0,255,179,0.05)', color: 'var(--text-dim)', border: '1px solid var(--panel-border)' }}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="btn-wamp flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-mono font-semibold transition-all"
+            style={{
+              background: 'rgba(0,255,179,0.1)',
+              color: 'var(--neon-green)',
+              border: '1px solid rgba(0,255,179,0.3)',
+            }}
           >
-            {new Date().toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' })}
-          </div>
+            <Icon name="FolderOpen" size={11} />
+            + Музыка
+          </button>
         </div>
       </div>
 
