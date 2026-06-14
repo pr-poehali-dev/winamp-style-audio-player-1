@@ -16,10 +16,11 @@ const PRESETS = [
       precision mediump float;
       uniform float u_time;
       uniform vec2 u_res;
-      uniform float u_bass, u_mid, u_high, u_avg;
+      uniform float u_bass, u_mid, u_high, u_avg, u_beat;
       void main() {
         vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
         uv.x *= u_res.x / u_res.y;
+        uv *= 1.0 - u_beat * 0.08;
         float t = u_time * 0.4;
         vec2 p = uv;
         float r = length(p);
@@ -33,7 +34,7 @@ const PRESETS = [
           wave2 * 0.4 + u_mid * 0.3,
           (1.0 - wave) * 0.6 + u_high * 0.5
         );
-        col *= 1.2 + u_avg * 0.8;
+        col *= 1.2 + u_avg * 0.8 + u_beat * 0.6;
         col = pow(col, vec3(0.8));
         gl_FragColor = vec4(col, 1.0);
       }
@@ -45,7 +46,7 @@ const PRESETS = [
       precision mediump float;
       uniform float u_time;
       uniform vec2 u_res;
-      uniform float u_bass, u_mid, u_high, u_avg;
+      uniform float u_bass, u_mid, u_high, u_avg, u_beat;
       float grid(vec2 p, float s) {
         vec2 g = abs(fract(p * s) - 0.5);
         return 1.0 - smoothstep(0.0, 0.04, min(g.x, g.y));
@@ -70,47 +71,58 @@ const PRESETS = [
           abs(sin(hue * 6.28 + 2.09)),
           abs(sin(hue * 6.28 + 4.19))
         );
-        col *= gval * (1.0 + u_high * 1.5);
+        col *= gval * (1.0 + u_high * 1.5 + u_beat * 1.2);
         col += vec3(0.05, 0.02, 0.1) * (1.0 - gval);
+        col += vec3(u_beat * 0.3, u_beat * 0.1, 0.0) * gval;
         gl_FragColor = vec4(col, 1.0);
       }
     `,
   },
   {
-    name: 'FLUID NEBULA',
+    name: 'BEAT FLASH',
     frag: `
       precision mediump float;
       uniform float u_time;
       uniform vec2 u_res;
-      uniform float u_bass, u_mid, u_high, u_avg;
-      vec2 rot(vec2 p, float a) {
-        return vec2(p.x*cos(a)-p.y*sin(a), p.x*sin(a)+p.y*cos(a));
-      }
-      float fbm(vec2 p) {
-        float v = 0.0; float a = 0.5;
-        for (int i = 0; i < 5; i++) {
-          v += a * (sin(p.x + sin(p.y + u_time * 0.2)) * 0.5 + 0.5);
-          p = rot(p * 1.8, 0.5 + float(i) * 0.3);
-          a *= 0.55;
-        }
-        return v;
-      }
+      uniform float u_bass, u_mid, u_high, u_avg, u_beat;
       void main() {
         vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
         uv.x *= u_res.x / u_res.y;
-        float t = u_time * 0.15;
-        vec2 p = uv * (1.5 + u_bass * 0.5);
-        p += vec2(sin(t * 0.7) * 0.3, cos(t * 0.5) * 0.3);
-        float n1 = fbm(p + t);
-        float n2 = fbm(p + vec2(n1 * (1.0 + u_mid), t * 0.8));
-        float n3 = fbm(p + vec2(n2, n1) + u_high * 0.5);
-        vec3 c1 = vec3(0.1, 0.4, 1.0);
-        vec3 c2 = vec3(0.9, 0.1, 0.8);
-        vec3 c3 = vec3(0.0, 1.0, 0.6);
-        vec3 col = mix(mix(c1, c2, n1), c3, n3 * 0.6);
-        col *= 0.6 + u_avg * 1.2;
-        col += vec3(u_bass * 0.2, 0.0, u_high * 0.1);
-        gl_FragColor = vec4(col, 1.0);
+        float t = u_time * 0.5;
+        float r = length(uv);
+        float a = atan(uv.y, uv.x);
+
+        // Shockwave rings on beat
+        float shock1 = exp(-abs(r - u_beat * 1.4) * 12.0) * u_beat * 3.0;
+        float shock2 = exp(-abs(r - u_beat * 0.8) * 18.0) * u_beat * 2.0;
+        float shock3 = exp(-abs(r - u_beat * 0.4) * 22.0) * u_beat * 1.5;
+
+        // Background spiral that reacts to beat
+        float spiral = sin(r * 8.0 - t * 3.0 + a * 4.0 + u_mid * 3.0) * 0.5 + 0.5;
+        float spiral2 = sin(r * 5.0 + t * 2.0 - a * 3.0 + u_bass * 2.0) * 0.5 + 0.5;
+
+        // Beat-reactive zoom pulse
+        float zoom = 1.0 + u_beat * 0.3;
+        vec2 zuv = uv / zoom;
+        float zr = length(zuv);
+        float strobe = exp(-zr * (3.0 - u_beat * 2.0)) * u_beat;
+
+        vec3 beatCol = vec3(1.0, 0.4 + u_mid * 0.4, 0.1) * (shock1 + shock2 + shock3);
+        vec3 bgCol = vec3(
+          spiral * 0.3 + u_bass * 0.5,
+          spiral2 * 0.2 + u_mid * 0.4,
+          (1.0 - spiral) * 0.4 + u_high * 0.6
+        );
+        vec3 strobeCol = vec3(1.0, 0.8, 0.6) * strobe * 0.8;
+
+        // Angular slices that light up on beat
+        float slices = abs(sin(a * 12.0 + t + u_beat * 6.28)) * u_beat;
+        vec3 sliceCol = vec3(0.5, 1.0, 0.8) * slices * exp(-r * 2.0);
+
+        vec3 col = bgCol + beatCol + strobeCol + sliceCol;
+        col *= 0.5 + u_avg * 1.2;
+        float vign = 1.0 - smoothstep(0.5, 1.3, r);
+        gl_FragColor = vec4(col * vign, 1.0);
       }
     `,
   },
@@ -120,7 +132,7 @@ const PRESETS = [
       precision mediump float;
       uniform float u_time;
       uniform vec2 u_res;
-      uniform float u_bass, u_mid, u_high, u_avg;
+      uniform float u_bass, u_mid, u_high, u_avg, u_beat;
       void main() {
         vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
         uv.x *= u_res.x / u_res.y;
@@ -137,8 +149,8 @@ const PRESETS = [
           glow * (0.5 + ang * 0.5) * vec3(0.0, 1.0, 0.7) +
           ripple * vec3(0.6, 0.0, 1.0) * 0.3
         );
-        col *= 0.4 + u_avg * 1.5;
-        float vign = 1.0 - smoothstep(0.4, 1.2, r);
+        col *= 0.4 + u_avg * 1.5 + u_beat * 0.8;
+        float vign = 1.0 - smoothstep(0.4 - u_beat * 0.1, 1.2, r);
         gl_FragColor = vec4(col * vign, 1.0);
       }
     `,
@@ -149,7 +161,7 @@ const PRESETS = [
       precision mediump float;
       uniform float u_time;
       uniform vec2 u_res;
-      uniform float u_bass, u_mid, u_high, u_avg;
+      uniform float u_bass, u_mid, u_high, u_avg, u_beat;
       void main() {
         vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
         uv.x *= u_res.x / u_res.y;
@@ -174,7 +186,7 @@ const PRESETS = [
           abs(sin(hue * 6.28 + 2.09)),
           abs(sin(hue * 6.28 + 4.19))
         );
-        col *= n * (1.0 + u_avg * 1.0) * 1.3;
+        col *= n * (1.0 + u_avg * 1.0 + u_beat * 0.7) * 1.3;
         gl_FragColor = vec4(col, 1.0);
       }
     `,
@@ -185,7 +197,7 @@ const PRESETS = [
       precision mediump float;
       uniform float u_time;
       uniform vec2 u_res;
-      uniform float u_bass, u_mid, u_high, u_avg;
+      uniform float u_bass, u_mid, u_high, u_avg, u_beat;
       float noise(vec2 p) {
         return sin(p.x * 2.1 + sin(p.y * 1.7 + u_time * 0.3)) *
                sin(p.y * 1.9 + sin(p.x * 2.3 - u_time * 0.2));
@@ -214,7 +226,7 @@ const PRESETS = [
           vec3(0.0, 0.3, 1.0),
           n + u_high * 0.5
         );
-        vec3 col = mix(outerCol * corona, sunCol, smoothstep(0.3, 0.1, r)) * 1.5;
+        vec3 col = mix(outerCol * corona, sunCol, smoothstep(0.3, 0.1, r)) * (1.5 + u_beat * 1.0);
         gl_FragColor = vec4(col, 1.0);
       }
     `,
@@ -225,7 +237,7 @@ const PRESETS = [
       precision mediump float;
       uniform float u_time;
       uniform vec2 u_res;
-      uniform float u_bass, u_mid, u_high, u_avg;
+      uniform float u_bass, u_mid, u_high, u_avg, u_beat;
       void main() {
         vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
         uv.x *= u_res.x / u_res.y;
@@ -249,7 +261,7 @@ const PRESETS = [
           abs(sin(hue * 6.28 + 4.19))
         ) * beam * 2.0;
         vec3 col = starCol + beamCol + trail * 0.1 * vec3(0.2, 0.4, 1.0);
-        col *= 0.5 + u_avg * 0.8;
+        col *= 0.5 + u_avg * 0.8 + u_beat * 0.6;
         gl_FragColor = vec4(col, 1.0);
       }
     `,
@@ -260,7 +272,7 @@ const PRESETS = [
       precision mediump float;
       uniform float u_time;
       uniform vec2 u_res;
-      uniform float u_bass, u_mid, u_high, u_avg;
+      uniform float u_bass, u_mid, u_high, u_avg, u_beat;
       vec2 fold(vec2 p, float n) {
         float a = 3.14159 / n;
         float angle = atan(p.y, p.x);
@@ -286,7 +298,7 @@ const PRESETS = [
           abs(sin(hue * 6.28)),
           abs(sin(hue * 6.28 + 2.09)),
           abs(sin(hue * 6.28 + 4.19))
-        ) * col_acc * (2.0 + u_avg * 2.0);
+        ) * col_acc * (2.0 + u_avg * 2.0 + u_beat * 1.5);
         col = min(col, vec3(1.5));
         gl_FragColor = vec4(col, 1.0);
       }
@@ -320,32 +332,28 @@ export default function Visualizer({ analyser, isPlaying, onFullscreen, isFullsc
   const programsRef = useRef<WebGLProgram[]>([]);
   const animRef = useRef<number>(0);
   const startTimeRef = useRef<number>(Date.now());
-  const presetTimerRef = useRef<number>(0);
   const fadeRef = useRef<number>(1);
   const fadingRef = useRef<boolean>(false);
 
+  // Beat detection state
+  const bassHistoryRef = useRef<number[]>(new Array(43).fill(0));
+  const beatRef = useRef<number>(0);         // 0..1, decays each frame
+  const beatFlashRef = useRef<number>(0);    // CSS overlay flash 0..1
+  const lastBeatTimeRef = useRef<number>(0); // throttle
+  const [flashOpacity, setFlashOpacity] = useState(0);
+
   const [presetIdx, setPresetIdx] = useState(0);
-  const [nextPresetIdx, setNextPresetIdx] = useState(1);
   const [showName, setShowName] = useState(true);
   const presetIdxRef = useRef(0);
-  const nextPresetIdxRef = useRef(1);
 
   // Auto-switch every 7 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       const next = (presetIdxRef.current + 1) % PRESETS.length;
-      const after = (next + 1) % PRESETS.length;
-      fadingRef.current = true;
-      setNextPresetIdx(after);
-      nextPresetIdxRef.current = after;
-      setTimeout(() => {
-        presetIdxRef.current = next;
-        setPresetIdx(next);
-        fadingRef.current = false;
-        fadeRef.current = 1;
-        setShowName(true);
-        setTimeout(() => setShowName(false), 2000);
-      }, 600);
+      presetIdxRef.current = next;
+      setPresetIdx(next);
+      setShowName(true);
+      setTimeout(() => setShowName(false), 2000);
     }, 7000);
 
     setTimeout(() => setShowName(false), 2000);
@@ -408,10 +416,38 @@ export default function Visualizer({ analyser, isPlaying, onFullscreen, isFullsc
       avg = avg / len / 255;
     } else if (isPlaying) {
       bass = (Math.sin(t * 2.1) * 0.5 + 0.5) * 0.4;
-      mid = (Math.sin(t * 1.3 + 1) * 0.5 + 0.5) * 0.3;
+      mid  = (Math.sin(t * 1.3 + 1) * 0.5 + 0.5) * 0.3;
       high = (Math.sin(t * 3.7 + 2) * 0.5 + 0.5) * 0.2;
-      avg = (bass + mid + high) / 3;
+      avg  = (bass + mid + high) / 3;
     }
+
+    // ── Beat detection (energy vs. local average) ──
+    const history = bassHistoryRef.current;
+    history.push(bass);
+    if (history.length > 43) history.shift();
+    const localAvg = history.reduce((a, b) => a + b, 0) / history.length;
+    const variance = history.reduce((a, b) => a + (b - localAvg) ** 2, 0) / history.length;
+    const threshold = localAvg + 1.4 * Math.sqrt(variance + 0.001);
+    const now = Date.now();
+    const isBeat = bass > threshold && bass > 0.15 && (now - lastBeatTimeRef.current) > 250;
+
+    if (isBeat) {
+      lastBeatTimeRef.current = now;
+      beatRef.current = 1.0;
+      beatFlashRef.current = 1.0;
+      setFlashOpacity(1);
+    }
+
+    // Decay beat value
+    beatRef.current *= 0.82;
+    beatFlashRef.current *= 0.75;
+    if (beatFlashRef.current < 0.01) {
+      setFlashOpacity(0);
+    } else {
+      setFlashOpacity(beatFlashRef.current);
+    }
+
+    const beat = beatRef.current;
 
     const drawPreset = (idx: number) => {
       const prog = programsRef.current[idx];
@@ -437,6 +473,7 @@ export default function Visualizer({ analyser, isPlaying, onFullscreen, isFullsc
       set1f('u_mid', mid);
       set1f('u_high', high);
       set1f('u_avg', avg);
+      set1f('u_beat', beat);
 
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     };
@@ -461,6 +498,16 @@ export default function Visualizer({ analyser, isPlaying, onFullscreen, isFullsc
   return (
     <div className="relative w-full h-full bg-black overflow-hidden">
       <canvas ref={canvasRef} className="w-full h-full block" />
+
+      {/* Beat flash overlay */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          opacity: flashOpacity * 0.18,
+          background: 'radial-gradient(ellipse at center, rgba(255,220,80,1) 0%, rgba(255,80,20,0.6) 40%, transparent 70%)',
+          transition: flashOpacity > 0.5 ? 'none' : 'opacity 0.15s ease-out',
+        }}
+      />
 
       {/* Preset name flash */}
       <div
