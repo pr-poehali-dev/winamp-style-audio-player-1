@@ -8,313 +8,495 @@ interface VisualizerProps {
   isFullscreen?: boolean;
 }
 
-type VisMode = 'bars' | 'wave' | 'circle' | 'milkdrop';
+// 8 GLSL пресетов в духе Milkdrop
+const PRESETS = [
+  {
+    name: 'PLASMA TUNNEL',
+    frag: `
+      precision mediump float;
+      uniform float u_time;
+      uniform vec2 u_res;
+      uniform float u_bass, u_mid, u_high, u_avg;
+      void main() {
+        vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
+        uv.x *= u_res.x / u_res.y;
+        float t = u_time * 0.4;
+        vec2 p = uv;
+        float r = length(p);
+        float a = atan(p.y, p.x);
+        float tunnel = 1.0 / (r + 0.1 + u_bass * 0.3);
+        float wave = sin(tunnel * 6.0 - t * 3.0 + a * 3.0 + u_mid * 4.0) * 0.5 + 0.5;
+        float wave2 = sin(tunnel * 4.0 + t * 2.0 - a * 5.0) * 0.5 + 0.5;
+        float plasma = sin(uv.x * 4.0 + t + u_high * 2.0) * sin(uv.y * 4.0 - t * 0.7);
+        vec3 col = vec3(
+          wave * 0.5 + plasma * 0.3 + u_bass * 0.4,
+          wave2 * 0.4 + u_mid * 0.3,
+          (1.0 - wave) * 0.6 + u_high * 0.5
+        );
+        col *= 1.2 + u_avg * 0.8;
+        col = pow(col, vec3(0.8));
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  },
+  {
+    name: 'WARP GRID',
+    frag: `
+      precision mediump float;
+      uniform float u_time;
+      uniform vec2 u_res;
+      uniform float u_bass, u_mid, u_high, u_avg;
+      float grid(vec2 p, float s) {
+        vec2 g = abs(fract(p * s) - 0.5);
+        return 1.0 - smoothstep(0.0, 0.04, min(g.x, g.y));
+      }
+      void main() {
+        vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
+        uv.x *= u_res.x / u_res.y;
+        float t = u_time * 0.3;
+        vec2 warp = uv + vec2(
+          sin(uv.y * 3.0 + t + u_bass * 2.0) * 0.15,
+          cos(uv.x * 2.5 - t * 0.8 + u_mid) * 0.15
+        );
+        float r = length(warp);
+        float zoom = 1.0 / (r + 0.3 + u_bass * 0.2);
+        vec2 gp = warp * zoom + vec2(t * 0.1, t * 0.07);
+        float g1 = grid(gp, 4.0);
+        float g2 = grid(gp * 2.0 + 0.25, 4.0) * 0.5;
+        float gval = g1 + g2;
+        float hue = fract(r * 0.4 - t * 0.2 + u_avg * 0.3);
+        vec3 col = vec3(
+          abs(sin(hue * 6.28)),
+          abs(sin(hue * 6.28 + 2.09)),
+          abs(sin(hue * 6.28 + 4.19))
+        );
+        col *= gval * (1.0 + u_high * 1.5);
+        col += vec3(0.05, 0.02, 0.1) * (1.0 - gval);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  },
+  {
+    name: 'FLUID NEBULA',
+    frag: `
+      precision mediump float;
+      uniform float u_time;
+      uniform vec2 u_res;
+      uniform float u_bass, u_mid, u_high, u_avg;
+      vec2 rot(vec2 p, float a) {
+        return vec2(p.x*cos(a)-p.y*sin(a), p.x*sin(a)+p.y*cos(a));
+      }
+      float fbm(vec2 p) {
+        float v = 0.0; float a = 0.5;
+        for (int i = 0; i < 5; i++) {
+          v += a * (sin(p.x + sin(p.y + u_time * 0.2)) * 0.5 + 0.5);
+          p = rot(p * 1.8, 0.5 + float(i) * 0.3);
+          a *= 0.55;
+        }
+        return v;
+      }
+      void main() {
+        vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
+        uv.x *= u_res.x / u_res.y;
+        float t = u_time * 0.15;
+        vec2 p = uv * (1.5 + u_bass * 0.5);
+        p += vec2(sin(t * 0.7) * 0.3, cos(t * 0.5) * 0.3);
+        float n1 = fbm(p + t);
+        float n2 = fbm(p + vec2(n1 * (1.0 + u_mid), t * 0.8));
+        float n3 = fbm(p + vec2(n2, n1) + u_high * 0.5);
+        vec3 c1 = vec3(0.1, 0.4, 1.0);
+        vec3 c2 = vec3(0.9, 0.1, 0.8);
+        vec3 c3 = vec3(0.0, 1.0, 0.6);
+        vec3 col = mix(mix(c1, c2, n1), c3, n3 * 0.6);
+        col *= 0.6 + u_avg * 1.2;
+        col += vec3(u_bass * 0.2, 0.0, u_high * 0.1);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  },
+  {
+    name: 'NEON RIPPLE',
+    frag: `
+      precision mediump float;
+      uniform float u_time;
+      uniform vec2 u_res;
+      uniform float u_bass, u_mid, u_high, u_avg;
+      void main() {
+        vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
+        uv.x *= u_res.x / u_res.y;
+        float t = u_time * 0.5;
+        float r = length(uv);
+        float a = atan(uv.y, uv.x);
+        float ripple = sin(r * 12.0 - t * 4.0 + u_bass * 6.0) * 0.5 + 0.5;
+        float ripple2 = sin(r * 8.0 + t * 2.5 + u_mid * 4.0 + a * 2.0) * 0.5 + 0.5;
+        float ang = sin(a * 6.0 + r * 3.0 - t * 2.0 + u_high * 3.0) * 0.5 + 0.5;
+        float glow = 0.05 / (abs(ripple - 0.5) + 0.02 + u_avg * 0.05);
+        glow += 0.03 / (abs(ripple2 - 0.5) + 0.02);
+        glow = min(glow, 3.0);
+        vec3 col = vec3(
+          glow * (0.5 + ang * 0.5) * vec3(0.0, 1.0, 0.7) +
+          ripple * vec3(0.6, 0.0, 1.0) * 0.3
+        );
+        col *= 0.4 + u_avg * 1.5;
+        float vign = 1.0 - smoothstep(0.4, 1.2, r);
+        gl_FragColor = vec4(col * vign, 1.0);
+      }
+    `,
+  },
+  {
+    name: 'ACID FRACTAL',
+    frag: `
+      precision mediump float;
+      uniform float u_time;
+      uniform vec2 u_res;
+      uniform float u_bass, u_mid, u_high, u_avg;
+      void main() {
+        vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
+        uv.x *= u_res.x / u_res.y;
+        float t = u_time * 0.2;
+        vec2 z = uv * (1.8 + u_bass * 0.6);
+        vec2 c = vec2(
+          sin(t * 0.3 + u_mid) * 0.6,
+          cos(t * 0.4 + u_high * 0.5) * 0.4
+        );
+        float iter = 0.0;
+        for (int i = 0; i < 48; i++) {
+          float x = z.x * z.x - z.y * z.y + c.x;
+          float y = 2.0 * z.x * z.y + c.y;
+          z = vec2(x, y);
+          if (dot(z, z) > 4.0) break;
+          iter += 1.0;
+        }
+        float n = iter / 48.0;
+        float hue = fract(n * 3.0 + t * 0.4 + u_avg * 0.5);
+        vec3 col = vec3(
+          abs(sin(hue * 6.28 + 0.0)),
+          abs(sin(hue * 6.28 + 2.09)),
+          abs(sin(hue * 6.28 + 4.19))
+        );
+        col *= n * (1.0 + u_avg * 1.0) * 1.3;
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  },
+  {
+    name: 'SOLAR STORM',
+    frag: `
+      precision mediump float;
+      uniform float u_time;
+      uniform vec2 u_res;
+      uniform float u_bass, u_mid, u_high, u_avg;
+      float noise(vec2 p) {
+        return sin(p.x * 2.1 + sin(p.y * 1.7 + u_time * 0.3)) *
+               sin(p.y * 1.9 + sin(p.x * 2.3 - u_time * 0.2));
+      }
+      void main() {
+        vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
+        uv.x *= u_res.x / u_res.y;
+        float t = u_time * 0.25;
+        float r = length(uv);
+        float a = atan(uv.y, uv.x);
+        vec2 polar = vec2(r, a / 6.28);
+        float n = 0.0;
+        vec2 q = polar;
+        n += noise(q * 3.0 + t);
+        n += noise(q * 6.0 - t * 0.8 + u_bass) * 0.5;
+        n += noise(q * 12.0 + t * 0.5 + u_mid) * 0.25;
+        n = n * 0.5 + 0.5;
+        float corona = exp(-r * (2.5 - u_bass * 1.0)) * (1.0 + n * u_avg * 2.0);
+        vec3 sunCol = mix(
+          vec3(1.0, 0.3, 0.0),
+          vec3(1.0, 0.9, 0.1),
+          n
+        );
+        vec3 outerCol = mix(
+          vec3(0.5, 0.0, 0.8),
+          vec3(0.0, 0.3, 1.0),
+          n + u_high * 0.5
+        );
+        vec3 col = mix(outerCol * corona, sunCol, smoothstep(0.3, 0.1, r)) * 1.5;
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  },
+  {
+    name: 'HYPERSPACE',
+    frag: `
+      precision mediump float;
+      uniform float u_time;
+      uniform vec2 u_res;
+      uniform float u_bass, u_mid, u_high, u_avg;
+      void main() {
+        vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
+        uv.x *= u_res.x / u_res.y;
+        float t = u_time * 0.6;
+        float speed = 1.0 + u_bass * 3.0;
+        float r = length(uv);
+        float a = atan(uv.y, uv.x);
+        float streak = abs(sin(a * 60.0 + u_mid * 10.0)) * 0.5 + 0.5;
+        float tunnel = pow(max(0.0, 1.0 - r), 2.0);
+        float stars = step(0.97 - u_avg * 0.05, fract(
+          sin(a * 123.4 + floor(r * 20.0) * 456.7) * 789.0
+        ));
+        float trail = exp(-r * 3.0) * streak;
+        float zoom = fract(r - t * speed * 0.15);
+        float beam = exp(-zoom * 8.0) * streak * (1.0 + u_high * 2.0);
+        float hue = fract(a / 6.28 + t * 0.1 + u_mid * 0.2);
+        vec3 starCol = vec3(0.8, 0.9, 1.0) * stars * (1.0 + u_avg);
+        vec3 beamCol = vec3(
+          abs(sin(hue * 6.28)),
+          abs(sin(hue * 6.28 + 2.09)),
+          abs(sin(hue * 6.28 + 4.19))
+        ) * beam * 2.0;
+        vec3 col = starCol + beamCol + trail * 0.1 * vec3(0.2, 0.4, 1.0);
+        col *= 0.5 + u_avg * 0.8;
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  },
+  {
+    name: 'CRYSTAL BLOOM',
+    frag: `
+      precision mediump float;
+      uniform float u_time;
+      uniform vec2 u_res;
+      uniform float u_bass, u_mid, u_high, u_avg;
+      vec2 fold(vec2 p, float n) {
+        float a = 3.14159 / n;
+        float angle = atan(p.y, p.x);
+        angle = mod(angle, 2.0 * a) - a;
+        return length(p) * vec2(cos(angle), sin(angle));
+      }
+      void main() {
+        vec2 uv = (gl_FragCoord.xy / u_res) * 2.0 - 1.0;
+        uv.x *= u_res.x / u_res.y;
+        float t = u_time * 0.2;
+        vec2 p = uv;
+        float scale = 1.0;
+        float col_acc = 0.0;
+        for (int i = 0; i < 6; i++) {
+          p = fold(p, 6.0 + u_mid * 2.0);
+          p = abs(p) - vec2(0.5 + u_bass * 0.1, 0.3);
+          p *= 1.4 + u_avg * 0.1;
+          scale *= 1.4;
+          col_acc += exp(-abs(length(p) - 0.5) * 8.0) / scale;
+        }
+        float hue = fract(col_acc * 0.5 + t * 0.3 + u_high * 0.4);
+        vec3 col = vec3(
+          abs(sin(hue * 6.28)),
+          abs(sin(hue * 6.28 + 2.09)),
+          abs(sin(hue * 6.28 + 4.19))
+        ) * col_acc * (2.0 + u_avg * 2.0);
+        col = min(col, vec3(1.5));
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  },
+];
+
+const VERT = `
+  attribute vec2 a_pos;
+  void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
+`;
+
+function compileShader(gl: WebGLRenderingContext, type: number, src: string) {
+  const s = gl.createShader(type)!;
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  return s;
+}
+
+function buildProgram(gl: WebGLRenderingContext, frag: string) {
+  const prog = gl.createProgram()!;
+  gl.attachShader(prog, compileShader(gl, gl.VERTEX_SHADER, VERT));
+  gl.attachShader(prog, compileShader(gl, gl.FRAGMENT_SHADER, frag));
+  gl.linkProgram(prog);
+  return prog;
+}
 
 export default function Visualizer({ analyser, isPlaying, onFullscreen, isFullscreen }: VisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const glRef = useRef<WebGLRenderingContext | null>(null);
+  const programsRef = useRef<WebGLProgram[]>([]);
   const animRef = useRef<number>(0);
-  const [mode, setMode] = useState<VisMode>('milkdrop');
-  const timeRef = useRef(0);
-  const particlesRef = useRef<Array<{ x: number; y: number; vx: number; vy: number; life: number; hue: number; size: number }>>([]);
+  const startTimeRef = useRef<number>(Date.now());
+  const presetTimerRef = useRef<number>(0);
+  const fadeRef = useRef<number>(1);
+  const fadingRef = useRef<boolean>(false);
 
-  const modes: VisMode[] = ['milkdrop', 'bars', 'wave', 'circle'];
-  const modeLabels: Record<VisMode, string> = {
-    milkdrop: 'MILKDROP',
-    bars: 'BARS',
-    wave: 'WAVE',
-    circle: 'CIRCLE',
-  };
+  const [presetIdx, setPresetIdx] = useState(0);
+  const [nextPresetIdx, setNextPresetIdx] = useState(1);
+  const [showName, setShowName] = useState(true);
+  const presetIdxRef = useRef(0);
+  const nextPresetIdxRef = useRef(1);
 
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  // Auto-switch every 7 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const next = (presetIdxRef.current + 1) % PRESETS.length;
+      const after = (next + 1) % PRESETS.length;
+      fadingRef.current = true;
+      setNextPresetIdx(after);
+      nextPresetIdxRef.current = after;
+      setTimeout(() => {
+        presetIdxRef.current = next;
+        setPresetIdx(next);
+        fadingRef.current = false;
+        fadeRef.current = 1;
+        setShowName(true);
+        setTimeout(() => setShowName(false), 2000);
+      }, 600);
+    }, 7000);
 
-    const W = canvas.width;
-    const H = canvas.height;
-    const t = (timeRef.current += 0.016);
+    setTimeout(() => setShowName(false), 2000);
+    return () => clearInterval(interval);
+  }, []);
 
-    let dataArray: Uint8Array;
-    let bufferLength: number;
-
-    if (analyser) {
-      bufferLength = analyser.frequencyBinCount;
-      dataArray = new Uint8Array(bufferLength);
-      analyser.getByteFrequencyData(dataArray);
-    } else {
-      bufferLength = 128;
-      dataArray = new Uint8Array(bufferLength);
-      for (let i = 0; i < bufferLength; i++) {
-        dataArray[i] = isPlaying ? Math.sin(t * 2 + i * 0.2) * 40 + 50 : 0;
-      }
-    }
-
-    if (mode === 'milkdrop') {
-      drawMilkdrop(ctx, W, H, t, dataArray, bufferLength);
-    } else if (mode === 'bars') {
-      drawBars(ctx, W, H, dataArray, bufferLength);
-    } else if (mode === 'wave') {
-      drawWave(ctx, W, H, dataArray, bufferLength, t);
-    } else if (mode === 'circle') {
-      drawCircle(ctx, W, H, dataArray, bufferLength, t);
-    }
-
-    animRef.current = requestAnimationFrame(draw);
-  }, [analyser, isPlaying, mode]);
-
-  function drawMilkdrop(ctx: CanvasRenderingContext2D, W: number, H: number, t: number, data: Uint8Array, len: number) {
-    // Fade with trail
-    ctx.fillStyle = 'rgba(5, 8, 15, 0.15)';
-    ctx.fillRect(0, 0, W, H);
-
-    const cx = W / 2;
-    const cy = H / 2;
-    const avg = data.reduce((a, b) => a + b, 0) / len / 255;
-    const bass = (data[0] + data[1] + data[2]) / 3 / 255;
-    const mid = (data[20] + data[30] + data[40]) / 3 / 255;
-    const high = (data[60] + data[80] + data[100]) / 3 / 255;
-
-    // Kaleidoscope warped tunnel
-    const spokes = 8;
-    for (let s = 0; s < spokes; s++) {
-      const angle = (s / spokes) * Math.PI * 2;
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(angle + t * 0.2 * (s % 2 === 0 ? 1 : -1));
-
-      for (let r = 10; r < Math.min(W, H) * 0.6; r += 8) {
-        const di = Math.floor((r / (Math.min(W, H) * 0.6)) * len);
-        const v = data[di] / 255;
-        const hue = (t * 40 + r * 1.2 + s * 45) % 360;
-        const alpha = v * 0.7 + 0.05;
-
-        ctx.beginPath();
-        ctx.arc(0, 0, r + v * 12 * bass, angle, angle + (Math.PI * 2) / spokes + 0.02);
-        ctx.strokeStyle = `hsla(${hue}, 100%, ${50 + v * 30}%, ${alpha})`;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-      }
-      ctx.restore();
-    }
-
-    // Floating plasma orbs
-    const numOrbs = 6;
-    for (let i = 0; i < numOrbs; i++) {
-      const phase = (i / numOrbs) * Math.PI * 2;
-      const r = Math.min(W, H) * (0.15 + mid * 0.15);
-      const ox = cx + Math.cos(t * 0.5 + phase) * r;
-      const oy = cy + Math.sin(t * 0.7 + phase * 1.3) * r * 0.6;
-      const hue = (t * 60 + i * 60) % 360;
-      const size = 4 + bass * 20 + high * 8;
-
-      const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, size * 3);
-      g.addColorStop(0, `hsla(${hue}, 100%, 80%, 0.8)`);
-      g.addColorStop(0.4, `hsla(${hue + 30}, 100%, 60%, 0.3)`);
-      g.addColorStop(1, 'transparent');
-
-      ctx.beginPath();
-      ctx.arc(ox, oy, size * 3, 0, Math.PI * 2);
-      ctx.fillStyle = g;
-      ctx.fill();
-    }
-
-    // Central pulsing star
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(t * 0.3);
-    const starPoints = 6;
-    const innerR = 5 + bass * 25;
-    const outerR = 15 + bass * 50 + mid * 20;
-    ctx.beginPath();
-    for (let i = 0; i < starPoints * 2; i++) {
-      const a = (i / (starPoints * 2)) * Math.PI * 2 - Math.PI / 2;
-      const r = i % 2 === 0 ? outerR : innerR;
-      if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
-      else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
-    }
-    ctx.closePath();
-    const hue = (t * 80) % 360;
-    ctx.fillStyle = `hsla(${hue}, 100%, 70%, 0.9)`;
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
-    ctx.fill();
-    ctx.restore();
-
-    // Particle emission
-    if (isPlaying && bass > 0.4) {
-      for (let i = 0; i < 3; i++) {
-        particlesRef.current.push({
-          x: cx + (Math.random() - 0.5) * 40,
-          y: cy + (Math.random() - 0.5) * 40,
-          vx: (Math.random() - 0.5) * 4,
-          vy: (Math.random() - 0.5) * 4 - 1,
-          life: 1,
-          hue: (t * 100 + Math.random() * 60) % 360,
-          size: 2 + Math.random() * 4,
-        });
-      }
-    }
-
-    // Update & draw particles
-    particlesRef.current = particlesRef.current.filter(p => p.life > 0.01);
-    for (const p of particlesRef.current) {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy -= 0.05;
-      p.life *= 0.96;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-      ctx.fillStyle = `hsla(${p.hue}, 100%, 70%, ${p.life})`;
-      ctx.fill();
-    }
-
-    // Outer ring freq
-    for (let i = 0; i < len; i++) {
-      const a = (i / len) * Math.PI * 2 - Math.PI / 2;
-      const v = data[i] / 255;
-      const r1 = Math.min(W, H) * 0.42;
-      const r2 = r1 + v * 20;
-      const hue = (a * (180 / Math.PI) + t * 60) % 360;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
-      ctx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
-      ctx.strokeStyle = `hsla(${hue}, 100%, 70%, ${v * 0.8 + 0.1})`;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
-  }
-
-  function drawBars(ctx: CanvasRenderingContext2D, W: number, H: number, data: Uint8Array, len: number) {
-    ctx.fillStyle = 'rgba(5, 8, 15, 0.4)';
-    ctx.fillRect(0, 0, W, H);
-
-    const bars = Math.min(len, 80);
-    const bw = W / bars - 1;
-    for (let i = 0; i < bars; i++) {
-      const v = data[i] / 255;
-      const bh = v * H * 0.9;
-      const hue = 160 - v * 60;
-      const g = ctx.createLinearGradient(0, H - bh, 0, H);
-      g.addColorStop(0, `hsla(${hue}, 100%, 70%, 1)`);
-      g.addColorStop(1, `hsla(${hue - 40}, 100%, 40%, 0.8)`);
-      ctx.fillStyle = g;
-      ctx.fillRect(i * (bw + 1), H - bh, bw, bh);
-
-      ctx.shadowBlur = 8;
-      ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
-    }
-    ctx.shadowBlur = 0;
-  }
-
-  function drawWave(ctx: CanvasRenderingContext2D, W: number, H: number, data: Uint8Array, len: number, t: number) {
-    ctx.fillStyle = 'rgba(5, 8, 15, 0.25)';
-    ctx.fillRect(0, 0, W, H);
-
-    let timeData: Uint8Array;
-    if (analyser) {
-      timeData = new Uint8Array(analyser.fftSize);
-      analyser.getByteTimeDomainData(timeData);
-    } else {
-      timeData = new Uint8Array(512);
-      for (let i = 0; i < 512; i++) {
-        timeData[i] = 128 + Math.sin(t * 3 + i * 0.05) * 60;
-      }
-    }
-
-    for (let layer = 0; layer < 3; layer++) {
-      const hue = 166 + layer * 40;
-      ctx.beginPath();
-      ctx.strokeStyle = `hsla(${hue}, 100%, 60%, ${0.8 - layer * 0.2})`;
-      ctx.lineWidth = 2 - layer * 0.5;
-      ctx.shadowBlur = 10;
-      ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
-
-      const sliceW = W / timeData.length;
-      let x = 0;
-      for (let i = 0; i < timeData.length; i++) {
-        const v = timeData[i] / 128;
-        const y = (v * H) / 2 + layer * 8 - layer * 4;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-        x += sliceW;
-      }
-      ctx.stroke();
-    }
-    ctx.shadowBlur = 0;
-  }
-
-  function drawCircle(ctx: CanvasRenderingContext2D, W: number, H: number, data: Uint8Array, len: number, t: number) {
-    ctx.fillStyle = 'rgba(5, 8, 15, 0.2)';
-    ctx.fillRect(0, 0, W, H);
-
-    const cx = W / 2, cy = H / 2;
-    const baseR = Math.min(W, H) * 0.25;
-
-    for (let layer = 0; layer < 3; layer++) {
-      ctx.beginPath();
-      for (let i = 0; i < len; i++) {
-        const a = (i / len) * Math.PI * 2 - Math.PI / 2 + t * 0.3 * (layer % 2 === 0 ? 1 : -1);
-        const v = data[i] / 255;
-        const r = baseR + v * 40 + layer * 15;
-        const x = cx + Math.cos(a) * r;
-        const y = cy + Math.sin(a) * r;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
-      const hue = (166 + layer * 60 + t * 20) % 360;
-      ctx.strokeStyle = `hsla(${hue}, 100%, 65%, 0.8)`;
-      ctx.lineWidth = 1.5;
-      ctx.shadowBlur = 12;
-      ctx.shadowColor = `hsl(${hue}, 100%, 60%)`;
-      ctx.stroke();
-    }
-    ctx.shadowBlur = 0;
-  }
-
+  // Init WebGL
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    const gl = canvas.getContext('webgl', { antialias: false, alpha: false });
+    if (!gl) return;
+    glRef.current = gl;
+
+    // Build all programs
+    programsRef.current = PRESETS.map(p => buildProgram(gl, p.frag));
+
+    // Fullscreen quad
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
 
     const resize = () => {
-      canvas.width = canvas.offsetWidth * window.devicePixelRatio;
-      canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-      const ctx = canvas.getContext('2d');
-      if (ctx) ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      canvas.width = canvas.offsetWidth * Math.min(window.devicePixelRatio, 2);
+      canvas.height = canvas.offsetHeight * Math.min(window.devicePixelRatio, 2);
+      gl.viewport(0, 0, canvas.width, canvas.height);
     };
     resize();
     window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
 
-    animRef.current = requestAnimationFrame(draw);
-    return () => {
-      cancelAnimationFrame(animRef.current);
-      window.removeEventListener('resize', resize);
+  const render = useCallback(() => {
+    const gl = glRef.current;
+    const canvas = canvasRef.current;
+    if (!gl || !canvas) {
+      animRef.current = requestAnimationFrame(render);
+      return;
+    }
+
+    const W = canvas.width;
+    const H = canvas.height;
+    const t = (Date.now() - startTimeRef.current) / 1000;
+
+    // Get audio data
+    let bass = 0, mid = 0, high = 0, avg = 0;
+    if (analyser) {
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(data);
+      const len = data.length;
+      const bassEnd = Math.floor(len * 0.05);
+      const midEnd = Math.floor(len * 0.35);
+      for (let i = 0; i < bassEnd; i++) bass += data[i];
+      bass = bass / bassEnd / 255;
+      for (let i = bassEnd; i < midEnd; i++) mid += data[i];
+      mid = mid / (midEnd - bassEnd) / 255;
+      for (let i = midEnd; i < len; i++) high += data[i];
+      high = high / (len - midEnd) / 255;
+      for (let i = 0; i < len; i++) avg += data[i];
+      avg = avg / len / 255;
+    } else if (isPlaying) {
+      bass = (Math.sin(t * 2.1) * 0.5 + 0.5) * 0.4;
+      mid = (Math.sin(t * 1.3 + 1) * 0.5 + 0.5) * 0.3;
+      high = (Math.sin(t * 3.7 + 2) * 0.5 + 0.5) * 0.2;
+      avg = (bass + mid + high) / 3;
+    }
+
+    const drawPreset = (idx: number) => {
+      const prog = programsRef.current[idx];
+      if (!prog) return;
+      gl.useProgram(prog);
+
+      const pos = gl.getAttribLocation(prog, 'a_pos');
+      gl.enableVertexAttribArray(pos);
+      gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+
+      const set1f = (name: string, val: number) => {
+        const loc = gl.getUniformLocation(prog, name);
+        if (loc) gl.uniform1f(loc, val);
+      };
+      const set2f = (name: string, x: number, y: number) => {
+        const loc = gl.getUniformLocation(prog, name);
+        if (loc) gl.uniform2f(loc, x, y);
+      };
+
+      set1f('u_time', t);
+      set2f('u_res', W, H);
+      set1f('u_bass', bass);
+      set1f('u_mid', mid);
+      set1f('u_high', high);
+      set1f('u_avg', avg);
+
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     };
-  }, [draw]);
+
+    drawPreset(presetIdxRef.current);
+
+    animRef.current = requestAnimationFrame(render);
+  }, [analyser, isPlaying]);
+
+  useEffect(() => {
+    animRef.current = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [render]);
+
+  const switchPreset = (idx: number) => {
+    presetIdxRef.current = idx;
+    setPresetIdx(idx);
+    setShowName(true);
+    setTimeout(() => setShowName(false), 2000);
+  };
 
   return (
-    <div className="relative w-full h-full">
-      <canvas
-        ref={canvasRef}
-        className="visualizer-canvas"
-        style={{ imageRendering: 'pixelated' }}
-      />
+    <div className="relative w-full h-full bg-black overflow-hidden">
+      <canvas ref={canvasRef} className="w-full h-full block" />
 
-      {/* Mode selector */}
-      <div className="absolute top-2 left-2 flex gap-1">
-        {modes.map(m => (
+      {/* Preset name flash */}
+      <div
+        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-opacity duration-700"
+        style={{ opacity: showName ? 1 : 0 }}
+      >
+        <span
+          className="text-[11px] font-mono font-bold tracking-[0.3em] px-3 py-1 rounded"
+          style={{
+            color: 'var(--neon-green)',
+            background: 'rgba(0,0,0,0.5)',
+            border: '1px solid rgba(0,255,179,0.2)',
+            textShadow: '0 0 10px var(--neon-green)',
+          }}
+        >
+          {PRESETS[presetIdx]?.name}
+        </span>
+      </div>
+
+      {/* Preset dots */}
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+        {PRESETS.map((_, i) => (
           <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={`btn-wamp px-2 py-0.5 text-[9px] font-mono rounded border transition-all ${
-              mode === m
-                ? 'border-[var(--neon-green)] text-[var(--neon-green)] bg-[rgba(0,255,179,0.1)]'
-                : 'border-[var(--panel-border)] text-[var(--text-dim)] hover:text-[var(--text-mid)]'
-            }`}
-          >
-            {modeLabels[m]}
-          </button>
+            key={i}
+            onClick={() => switchPreset(i)}
+            className="transition-all btn-wamp"
+            style={{
+              width: i === presetIdx ? 16 : 5,
+              height: 5,
+              borderRadius: 3,
+              background: i === presetIdx ? 'var(--neon-green)' : 'rgba(255,255,255,0.2)',
+              boxShadow: i === presetIdx ? '0 0 6px var(--neon-green)' : 'none',
+              padding: 0,
+              border: 'none',
+            }}
+          />
         ))}
       </div>
 
@@ -322,7 +504,7 @@ export default function Visualizer({ analyser, isPlaying, onFullscreen, isFullsc
       {onFullscreen && (
         <button
           onClick={onFullscreen}
-          className="btn-wamp absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded border border-[var(--panel-border)] text-[var(--text-mid)] hover:text-[var(--neon-green)] hover:border-[var(--neon-green)] transition-all"
+          className="btn-wamp absolute top-2 right-2 w-7 h-7 flex items-center justify-center rounded border border-[rgba(255,255,255,0.1)] text-[rgba(255,255,255,0.4)] hover:text-[var(--neon-green)] hover:border-[var(--neon-green)] transition-all"
         >
           <Icon name={isFullscreen ? 'Minimize2' : 'Maximize2'} size={12} />
         </button>
